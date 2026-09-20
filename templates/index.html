@@ -1,8 +1,10 @@
 {% extends "base.html" %}
+{% block title %}Welcome | T1D Supply Exchange{% endblock %}
 {% block content %}
-<div class="card">
-    <h2>Purpose</h2>
-    <p>
+<section class="card hero">
+    <div class="eyebrow">Share what helps. Find what you need.</div>
+    <h2>A kinder way to exchange T1D supplies.</h2>
+    <p class="lead">
         This community webapp connects people with Type‑1 diabetic supplies
         (insulin, CGMs, pumps, test strips, syringes, ketone sticks, Baqsimi, etc.)
         to those who need them—whether for exchange, sale at fair prices, or free.
@@ -16,5 +18,9 @@
         For better matching, users can optionally provide latitude/longitude (e.g., from a map app)
         so the system can sort offers by physical distance.
     </p>
-</div>
+    <div class="actions">
+        <a class="button" href="{{ url_for('recipient') }}">Find supplies</a>
+        <a class="button secondary" href="{{ url_for('donor') }}">Offer supplies</a>
+    </div>
+</section>
 {% endblock %}

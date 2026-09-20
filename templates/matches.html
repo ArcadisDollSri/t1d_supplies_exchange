@@ -8,6 +8,7 @@
     </p>
 
     {% if donors %}
+        <div class="table-wrap">
         <table>
             <thead>
             <tr>
@@ -43,6 +44,7 @@
             {% endfor %}
             </tbody>
         </table>
+        </div>
     {% else %}
         <p>No current offers found for this supply type. You can check back later or broaden your search.</p>
     {% endif %}
