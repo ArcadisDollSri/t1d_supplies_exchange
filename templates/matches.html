@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Matches for "{{ supply_type }}"</h2>
+    <p>
+        Location preference: {{ city or 'N/A' }} {{ zip_code or '' }}.
+        If latitude/longitude were provided, results are boosted by physical proximity.
+    </p>
+
+    {% if donors %}
+        <table>
+            <thead>
+            <tr>
+                <th>Donor</th>
+                <th>Contact</th>
+                <th>Location</th>
+                <th>Supply Details</th>
+                <th>Offer Type</th>
+                <th>Notes</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for d in donors %}
+                <tr>
+                    <td>{{ d["name"] }}</td>
+                    <td>{{ d["email"] }}</td>
+                    <td>
+                        {{ d["city"] or '' }} {{ d["zip_code"] or '' }}<br>
+                        {% if d["latitude"] and d["longitude"] %}
+                            Lat: {{ d["latitude"] }}, Lon: {{ d["longitude"] }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        Type: {{ d["supply_type"] }}<br>
+                        Brand: {{ d["brand"] or 'N/A' }}<br>
+                        Qty: {{ d["quantity"] }}<br>
+                        Condition: {{ d["condition"] or 'N/A' }}<br>
+                        Expiry: {{ d["expiry_date"] or 'N/A' }}
+                    </td>
+                    <td>{{ d["offer_type"] }}</td>
+                    <td>{{ d["notes"] or '' }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% else %}
+        <p>No current offers found for this supply type. You can check back later or broaden your search.</p>
+    {% endif %}
+</div>
+{% endblock %}

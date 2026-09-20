@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Offer Supplies</h2>
+    <p class="disclaimer">
+        Only offer supplies that are stored correctly, within safe use dates, and compatible with typical T1D use.
+        Do not offer anything you believe may be unsafe or illegal to transfer.
+    </p>
+    <form method="post">
+        <label>Full Name
+            <input type="text" name="name" required>
+        </label>
+        <label>Email (for contact)
+            <input type="email" name="email" required>
+        </label>
+        <label>City
+            <input type="text" name="city">
+        </label>
+        <label>ZIP Code
+            <input type="text" name="zip_code">
+        </label>
+        <label>Latitude (optional)
+            <input type="text" name="latitude" placeholder="e.g. 47.6101">
+        </label>
+        <label>Longitude (optional)
+            <input type="text" name="longitude" placeholder="-122.2015">
+        </label>
+        <label>Supply Type
+            <select name="supply_type" required>
+                <option value="insulin">Insulin (all forms)</option>
+                <option value="glucometer">Glucometer</option>
+                <option value="test_strips">Test Strips</option>
+                <option value="cgm">CGM (sensors/transmitters)</option>
+                <option value="pump">Insulin Pump</option>
+                <option value="syringes">Syringes / Pen Needles</option>
+                <option value="ketone_sticks">Ketone Sticks</option>
+                <option value="baqsimi">Baqsimi / Glucagon</option>
+                <option value="other">Other T1D Supply</option>
+            </select>
+        </label>
+        <label>Brand / Model
+            <input type="text" name="brand">
+        </label>
+        <label>Quantity
+            <input type="number" name="quantity" min="0">
+        </label>
+        <label>Condition
+            <input type="text" name="condition" placeholder="New, unopened, gently used, etc.">
+        </label>
+        <label>Expiry Date
+            <input type="text" name="expiry_date" placeholder="YYYY-MM or description">
+        </label>
+        <label>Offer Type
+            <select name="offer_type" required>
+                <option value="free">Free</option>
+                <option value="sell">Sell (fair price)</option>
+                <option value="exchange">Exchange</option>
+            </select>
+        </label>
+        <label>Notes
+            <textarea name="notes" rows="3" placeholder="Any important details, compatibility, local pickup, etc."></textarea>
+        </label>
+        <button type="submit">Submit Offer</button>
+    </form>
+</div>
+{% endblock %}

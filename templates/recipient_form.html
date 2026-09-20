@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Register Your Need</h2>
+    <p class="disclaimer">
+        This tool helps you discover potential donors. You are responsible for verifying safety,
+        legality, and suitability of any supplies you receive, and for consulting your healthcare provider.
+    </p>
+    <form method="post">
+        <label>Full Name
+            <input type="text" name="name" required>
+        </label>
+        <label>Email (for contact)
+            <input type="email" name="email" required>
+        </label>
+        <label>City
+            <input type="text" name="city">
+        </label>
+        <label>ZIP Code
+            <input type="text" name="zip_code">
+        </label>
+        <label>Latitude (optional)
+            <input type="text" name="latitude" placeholder="e.g. 47.6101">
+        </label>
+        <label>Longitude (optional)
+            <input type="text" name="longitude" placeholder="-122.2015">
+        </label>
+        <label>Supply Type Needed
+            <select name="supply_type" required>
+                <option value="insulin">Insulin (all forms)</option>
+                <option value="glucometer">Glucometer</option>
+                <option value="test_strips">Test Strips</option>
+                <option value="cgm">CGM (sensors/transmitters)</option>
+                <option value="pump">Insulin Pump</option>
+                <option value="syringes">Syringes / Pen Needles</option>
+                <option value="ketone_sticks">Ketone Sticks</option>
+                <option value="baqsimi">Baqsimi / Glucagon</option>
+                <option value="other">Other T1D Supply</option>
+            </select>
+        </label>
+        <label>Urgency
+            <select name="urgency">
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high">High</option>
+                <option value="critical">Critical</option>
+            </select>
+        </label>
+        <label>Notes
+            <textarea name="notes" rows="3" placeholder="Any details about device compatibility, timelines, etc."></textarea>
+        </label>
+        <button type="submit">Submit Need & View Matches</button>
+    </form>
+</div>
+{% endblock %}
