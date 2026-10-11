@@ -16,9 +16,9 @@
             <tbody>
             {% for item in received %}
                 <tr>
-                    <td>{{ item["supply_type"] }} ({{ item["urgency"] or 'unspecified urgency' }})</td>
-                    <td>{{ item["recipient_city"] or 'Area not provided' }}</td>
-                    <td>
+                    <td data-label="Need">{{ item["supply_type"] }} ({{ item["urgency"] or 'unspecified urgency' }})</td>
+                    <td data-label="Approximate location">{{ item["recipient_city"] or 'Area not provided' }}</td>
+                    <td data-label="Status / contact">
                         {{ item["status"]|capitalize }}
                         {% if item["status"] == 'approved' %}
                             <br>{{ item["recipient_name"] }}
@@ -31,7 +31,7 @@
                             <br>{{ item["recipient_city"] or 'Area not provided' }}
                         {% endif %}
                     </td>
-                    <td>
+                    <td data-label="Respond">
                         {% if item["status"] == 'pending' %}
                             <form method="post" action="{{ url_for('update_connection_request', request_id=item['request_id'], action='approve') }}">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -73,7 +73,7 @@
             <tbody>
             {% for item in sent %}
                 <tr>
-                    <td>
+                    <td data-label="Offer">
                         {{ item["supply_type"] }}<br>
                         Brand: {{ item["brand"] or 'N/A' }}<br>
                         Qty: {{ item["quantity"] }}<br>
@@ -81,8 +81,8 @@
                         Expiry: {{ item["expiry_date"] or 'N/A' }}<br>
                         Offer: {{ item["offer_type"] }}
                     </td>
-                    <td>{{ item["donor_city"] or 'Area not provided' }}</td>
-                    <td>
+                    <td data-label="Approximate location">{{ item["donor_city"] or 'Area not provided' }}</td>
+                    <td data-label="Status / contact">
                         {{ item["status"]|capitalize }}
                         {% if item["status"] == 'approved' %}
                             <br>{{ item["donor_name"] }}
