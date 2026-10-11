@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2>Incoming connection requests</h2>
+    {% if received %}
+        <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>Need</th>
+                <th>Approximate location</th>
+                <th>Status / contact</th>
+                <th>Respond</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in received %}
+                <tr>
+                    <td>{{ item["supply_type"] }} ({{ item["urgency"] or 'unspecified urgency' }})</td>
+                    <td>{{ item["recipient_city"] or 'Area not provided' }}</td>
+                    <td>
+                        {{ item["status"]|capitalize }}
+                        {% if item["status"] == 'approved' %}
+                            <br>{{ item["recipient_name"] }}
+                            <br><a href="mailto:{{ item['recipient_email'] }}">{{ item["recipient_email"] }}</a>
+                            <br>ZIP/postal code: {{ item["recipient_zip"] or 'not provided' }}
+                        {% elif item["status"] == 'pending' %}
+                            <br>ZIP and contact details stay hidden until you approve.
+                            <br>{{ item["recipient_city"] or 'Area not provided' }}
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item["status"] == 'pending' %}
+                            <form method="post" action="{{ url_for('update_connection_request', request_id=item['request_id'], action='approve') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit">Approve and share contacts</button>
+                            </form>
+                            <form method="post" action="{{ url_for('update_connection_request', request_id=item['request_id'], action='decline') }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button class="secondary" type="submit">Decline</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    {% else %}
+        <p>No incoming requests.</p>
+    {% endif %}
+</div>
+
+<div class="card">
+    <h2>Requests you sent</h2>
+    {% if sent %}
+        <div class="table-wrap">
+        <table>
+            <thead>
+            <tr>
+                <th>Offer</th>
+                <th>Approximate location</th>
+                <th>Status / contact</th>
+            </tr>
+            </thead>
+            <tbody>
+            {% for item in sent %}
+                <tr>
+                    <td>
+                        {{ item["supply_type"] }}<br>
+                        Brand: {{ item["brand"] or 'N/A' }}<br>
+                        Qty: {{ item["quantity"] }}<br>
+                        Condition: {{ item["condition"] or 'N/A' }}<br>
+                        Expiry: {{ item["expiry_date"] or 'N/A' }}<br>
+                        Offer: {{ item["offer_type"] }}
+                    </td>
+                    <td>{{ item["donor_city"] or 'Area not provided' }}</td>
+                    <td>
+                        {{ item["status"]|capitalize }}
+                        {% if item["status"] == 'approved' %}
+                            <br>{{ item["donor_name"] }}
+                            <br><a href="mailto:{{ item['donor_email'] }}">{{ item["donor_email"] }}</a>
+                            <br>ZIP/postal code: {{ item["donor_zip"] or 'not provided' }}
+                        {% elif item["status"] == 'pending' %}
+                            <br>ZIP and donor contact details stay hidden until approval.
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    {% else %}
+        <p>You haven't requested a connection yet.</p>
+    {% endif %}
+</div>
+{% endblock %}

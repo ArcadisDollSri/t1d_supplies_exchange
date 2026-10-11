@@ -1,18 +1,22 @@
-import math
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import (
+    CheckConstraint,
     Column,
-    Float,
+    DateTime,
     ForeignKey,
     Integer,
     MetaData,
     String,
     Table,
+    UniqueConstraint,
+    case,
     create_engine,
+    func,
     insert,
     select,
+    update,
 )
 from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -63,8 +67,6 @@ donors = Table(
     Column("email", String, nullable=False),
     Column("city", String),
     Column("zip_code", String),
-    Column("latitude", Float),
-    Column("longitude", Float),
     Column("supply_type", String, nullable=False, index=True),
     Column("brand", String),
     Column("quantity", Integer),
@@ -83,11 +85,24 @@ recipients = Table(
     Column("email", String, nullable=False),
     Column("city", String),
     Column("zip_code", String),
-    Column("latitude", Float),
-    Column("longitude", Float),
     Column("supply_type", String, nullable=False),
     Column("urgency", String),
     Column("notes", String),
+)
+
+connection_requests = Table(
+    "connection_requests",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("donor_id", Integer, ForeignKey("donors.id"), nullable=False),
+    Column("recipient_id", Integer, ForeignKey("recipients.id"), nullable=False),
+    Column("status", String, nullable=False),
+    Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    CheckConstraint(
+        "status IN ('pending', 'approved', 'declined')",
+        name="connection_requests_status_check",
+    ),
+    UniqueConstraint("donor_id", "recipient_id", name="connection_requests_pair_unique"),
 )
 
 
@@ -187,10 +202,9 @@ def donor():
     if request.method == "POST":
         name = request.form.get("name")
         email = request.form.get("email")
-        city = request.form.get("city")
+        city = request.form.get("city", "").strip() or None
         zip_code = request.form.get("zip_code")
-        latitude = request.form.get("latitude")
-        longitude = request.form.get("longitude")
+        zip_code = zip_code.strip() if zip_code else None
         supply_type = request.form.get("supply_type")
         brand = request.form.get("brand")
         quantity = int(request.form.get("quantity") or 0)
@@ -199,8 +213,9 @@ def donor():
         offer_type = request.form.get("offer_type")
         notes = request.form.get("notes")
 
-        latitude = float(latitude) if latitude else None
-        longitude = float(longitude) if longitude else None
+        if not city and not zip_code:
+            flash("Enter a city or area, or a ZIP/postal code.", "error")
+            return redirect(url_for("donor"))
 
         with engine.begin() as conn:
             conn.execute(
@@ -210,8 +225,6 @@ def donor():
                     email=email,
                     city=city,
                     zip_code=zip_code,
-                    latitude=latitude,
-                    longitude=longitude,
                     supply_type=supply_type,
                     brand=brand,
                     quantity=quantity,
@@ -238,104 +251,323 @@ def recipient():
     if request.method == "POST":
         name = request.form.get("name")
         email = request.form.get("email")
-        city = request.form.get("city")
+        city = request.form.get("city", "").strip() or None
         zip_code = request.form.get("zip_code")
-        latitude = request.form.get("latitude")
-        longitude = request.form.get("longitude")
+        zip_code = zip_code.strip() if zip_code else None
         supply_type = request.form.get("supply_type")
         urgency = request.form.get("urgency")
         notes = request.form.get("notes")
 
-        latitude = float(latitude) if latitude else None
-        longitude = float(longitude) if longitude else None
+        if not city and not zip_code:
+            flash("Enter a city or area, or a ZIP/postal code.", "error")
+            return redirect(url_for("recipient"))
 
         with engine.begin() as conn:
-            conn.execute(
+            result = conn.execute(
                 insert(recipients).values(
                     user_id=user["id"],
                     name=name,
                     email=email,
                     city=city,
                     zip_code=zip_code,
-                    latitude=latitude,
-                    longitude=longitude,
                     supply_type=supply_type,
                     urgency=urgency,
                     notes=notes,
                 )
             )
+            recipient_id = result.inserted_primary_key[0]
 
-        return redirect(url_for("matches",
-                                supply_type=supply_type,
-                                city=city,
-                                zip_code=zip_code,
-                                latitude=latitude,
-                                longitude=longitude))
+        return redirect(url_for("matches", recipient_id=recipient_id))
 
     return render_template("recipient_form.html", user=user)
 
 
 # ---------- Matching logic ----------
 
-def haversine(lat1, lon1, lat2, lon2):
-    # Returns distance in kilometers
-    R = 6371.0
-    phi1 = math.radians(lat1)
-    phi2 = math.radians(lat2)
-    dphi = math.radians(lat2 - lat1)
-    dlambda = math.radians(lon2 - lon1)
-
-    a = math.sin(dphi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
-
-
-def find_matches(supply_type, city, zip_code, latitude, longitude):
+def find_matches(supply_type, city, zip_code, user_id):
     with engine.connect() as conn:
         matching_donors = conn.execute(
-            select(donors).where(donors.c.supply_type == supply_type)
+            select(
+                donors.c.id,
+                donors.c.city,
+                donors.c.zip_code,
+                donors.c.supply_type,
+                donors.c.brand,
+                donors.c.quantity,
+                donors.c.condition,
+                donors.c.expiry_date,
+                donors.c.offer_type,
+            ).where(
+                donors.c.supply_type == supply_type,
+                donors.c.user_id != user_id,
+            )
         ).mappings().all()
 
-    def score(d):
-        s = 0
-        # Text-based proximity
-        if zip_code and d["zip_code"] and zip_code.strip() == d["zip_code"].strip():
-            s += 2
-        if city and d["city"] and city.strip().lower() == d["city"].strip().lower():
-            s += 1
-        # Geo distance (if both sides have lat/long)
-        if latitude is not None and longitude is not None and d["latitude"] is not None and d["longitude"] is not None:
-            dist_km = haversine(latitude, longitude, d["latitude"], d["longitude"])
-            # Invert distance into score (closer = higher)
-            s += max(0, 10 - dist_km)  # simple heuristic: within ~10km gets positive boost
-        return s
+    def location_rank(donor):
+        same_city = bool(city and donor["city"]) and (
+            city.strip().casefold() == donor["city"].strip().casefold()
+        )
+        same_zip = bool(zip_code and donor["zip_code"]) and (
+            "".join(ch for ch in zip_code.upper() if ch.isalnum())
+            == "".join(ch for ch in donor["zip_code"].upper() if ch.isalnum())
+        ) and (not city or not donor["city"] or same_city)
+        return (same_zip, same_city)
 
-    donors_sorted = sorted(matching_donors, key=score, reverse=True)
-    return donors_sorted
+    sorted_donors = sorted(matching_donors, key=location_rank, reverse=True)
+    return [
+        {
+            "id": donor["id"],
+            "city": donor["city"],
+            "supply_type": donor["supply_type"],
+            "brand": donor["brand"],
+            "quantity": donor["quantity"],
+            "condition": donor["condition"],
+            "expiry_date": donor["expiry_date"],
+            "offer_type": donor["offer_type"],
+            "same_zip": location_rank(donor)[0],
+            "same_city": location_rank(donor)[1],
+        }
+        for donor in sorted_donors
+    ]
 
 
 @app.route("/matches")
 def matches():
-    supply_type = request.args.get("supply_type")
-    city = request.args.get("city")
-    zip_code = request.args.get("zip_code")
-    latitude = request.args.get("latitude")
-    longitude = request.args.get("longitude")
+    user = current_user()
+    if not user:
+        flash("Please log in to view matches.", "error")
+        return redirect(url_for("login"))
 
-    latitude = float(latitude) if latitude not in (None, "", "None") else None
-    longitude = float(longitude) if longitude not in (None, "", "None") else None
+    recipient_id = request.args.get("recipient_id", type=int)
+    with engine.connect() as conn:
+        need = conn.execute(
+            select(recipients).where(
+                recipients.c.id == recipient_id,
+                recipients.c.user_id == user["id"],
+            )
+        ).mappings().first()
 
-    donors = find_matches(supply_type, city, zip_code, latitude, longitude)
+    if not need:
+        flash("Register a need before viewing matches.", "error")
+        return redirect(url_for("recipient"))
+
+    matching_donors = find_matches(
+        need["supply_type"], need["city"], need["zip_code"], user["id"]
+    )
+    with engine.connect() as conn:
+        request_rows = conn.execute(
+            select(connection_requests.c.donor_id, connection_requests.c.status).where(
+                connection_requests.c.recipient_id == need["id"]
+            )
+        ).all()
+        approved_contacts = conn.execute(
+            select(
+                connection_requests.c.donor_id,
+                donors.c.name,
+                donors.c.email,
+                donors.c.city,
+                donors.c.zip_code,
+            )
+            .join(donors, donors.c.id == connection_requests.c.donor_id)
+            .where(
+                connection_requests.c.recipient_id == need["id"],
+                connection_requests.c.status == "approved",
+            )
+        ).mappings().all()
+
+    request_statuses = {row.donor_id: row.status for row in request_rows}
+    donor_contacts = {row["donor_id"]: row for row in approved_contacts}
     return render_template(
         "matches.html",
-        user=current_user(),
-        donors=donors,
-        supply_type=supply_type,
-        city=city,
-        zip_code=zip_code,
-        latitude=latitude,
-        longitude=longitude
+        user=user,
+        donors=matching_donors,
+        need=need,
+        request_statuses=request_statuses,
+        donor_contacts=donor_contacts,
     )
+
+
+@app.route("/connections", methods=["GET"])
+def connections():
+    user = current_user()
+    if not user:
+        flash("Please log in to view connection requests.", "error")
+        return redirect(url_for("login"))
+
+    with engine.connect() as conn:
+        received = conn.execute(
+            select(
+                connection_requests.c.id.label("request_id"),
+                connection_requests.c.status,
+                connection_requests.c.created_at,
+                case(
+                    (connection_requests.c.status == "approved", recipients.c.name)
+                ).label("recipient_name"),
+                case(
+                    (connection_requests.c.status == "approved", recipients.c.email)
+                ).label("recipient_email"),
+                recipients.c.city.label("recipient_city"),
+                case(
+                    (connection_requests.c.status == "approved", recipients.c.zip_code)
+                ).label("recipient_zip"),
+                recipients.c.supply_type,
+                recipients.c.urgency,
+            )
+            .join(recipients, recipients.c.id == connection_requests.c.recipient_id)
+            .join(donors, donors.c.id == connection_requests.c.donor_id)
+            .where(donors.c.user_id == user["id"])
+            .order_by(connection_requests.c.created_at.desc())
+        ).mappings().all()
+        sent = conn.execute(
+            select(
+                connection_requests.c.id.label("request_id"),
+                connection_requests.c.status,
+                connection_requests.c.created_at,
+                donors.c.id.label("donor_id"),
+                case(
+                    (connection_requests.c.status == "approved", donors.c.name)
+                ).label("donor_name"),
+                case(
+                    (connection_requests.c.status == "approved", donors.c.email)
+                ).label("donor_email"),
+                donors.c.city.label("donor_city"),
+                case(
+                    (connection_requests.c.status == "approved", donors.c.zip_code)
+                ).label("donor_zip"),
+                donors.c.supply_type,
+                donors.c.brand,
+                donors.c.quantity,
+                donors.c.condition,
+                donors.c.expiry_date,
+                donors.c.offer_type,
+            )
+            .join(donors, donors.c.id == connection_requests.c.donor_id)
+            .join(recipients, recipients.c.id == connection_requests.c.recipient_id)
+            .where(recipients.c.user_id == user["id"])
+            .order_by(connection_requests.c.created_at.desc())
+        ).mappings().all()
+
+    return render_template(
+        "connections.html",
+        user=user,
+        received=received,
+        sent=sent,
+    )
+
+
+@app.route("/connections/request/<int:recipient_id>/<int:donor_id>", methods=["POST"])
+def request_connection(recipient_id, donor_id):
+    user = current_user()
+    if not user:
+        flash("Please log in to request a connection.", "error")
+        return redirect(url_for("login"))
+
+    try:
+        with engine.begin() as conn:
+            need = conn.execute(
+                select(recipients).where(
+                    recipients.c.id == recipient_id,
+                    recipients.c.user_id == user["id"],
+                )
+            ).mappings().first()
+            if not need:
+                flash("That need was not found.", "error")
+                return redirect(url_for("recipient"))
+
+            donor_offer = conn.execute(
+                select(donors.c.id).where(
+                    donors.c.id == donor_id,
+                    donors.c.user_id != user["id"],
+                    donors.c.supply_type == need["supply_type"],
+                )
+            ).first()
+            if not donor_offer:
+                flash("That offer is not available for this need.", "error")
+                return redirect(url_for("recipient"))
+
+            existing = conn.execute(
+                select(connection_requests).where(
+                    connection_requests.c.donor_id == donor_id,
+                    connection_requests.c.recipient_id == recipient_id,
+                )
+            ).mappings().first()
+            if existing:
+                if existing["status"] == "declined":
+                    conn.execute(
+                        update(connection_requests)
+                        .where(connection_requests.c.id == existing["id"])
+                        .values(status="pending", created_at=func.now())
+                    )
+                    flash("Request sent again. Your contact details stay private until the donor approves.", "success")
+                else:
+                    flash("A connection request already exists for this offer and need.", "error")
+            else:
+                conn.execute(
+                    insert(connection_requests).values(
+                        donor_id=donor_id,
+                        recipient_id=recipient_id,
+                        status="pending",
+                    )
+                )
+                flash("Request sent. Your contact details stay private until the donor approves.", "success")
+    except IntegrityError:
+        with engine.connect() as conn:
+            existing = conn.execute(
+                select(connection_requests.c.id).where(
+                    connection_requests.c.donor_id == donor_id,
+                    connection_requests.c.recipient_id == recipient_id,
+                )
+            ).first()
+        if not existing:
+            raise
+        flash("A connection request already exists for this offer and need.", "error")
+
+    return redirect(url_for("matches", recipient_id=recipient_id))
+
+
+@app.route("/connections/<int:request_id>/<action>", methods=["POST"])
+def update_connection_request(request_id, action):
+    user = current_user()
+    if not user:
+        flash("Please log in to respond to connection requests.", "error")
+        return redirect(url_for("login"))
+    if action not in {"approve", "decline"}:
+        flash("Invalid request action.", "error")
+        return redirect(url_for("connections"))
+
+    new_status = "approved" if action == "approve" else "declined"
+    with engine.begin() as conn:
+        owned_request = conn.execute(
+            select(connection_requests.c.id)
+            .join(donors, donors.c.id == connection_requests.c.donor_id)
+            .where(
+                connection_requests.c.id == request_id,
+                connection_requests.c.status == "pending",
+                donors.c.user_id == user["id"],
+            )
+        ).first()
+        if not owned_request:
+            flash("That pending request was not found.", "error")
+            return redirect(url_for("connections"))
+        result = conn.execute(
+            update(connection_requests)
+            .where(
+                connection_requests.c.id == request_id,
+                connection_requests.c.status == "pending",
+            )
+            .values(status=new_status)
+        )
+        if result.rowcount != 1:
+            flash("That pending request was already handled.", "error")
+            return redirect(url_for("connections"))
+
+    flash(
+        "Connection approved; both parties can now see each other's contact details."
+        if new_status == "approved"
+        else "Connection request declined.",
+        "success",
+    )
+    return redirect(url_for("connections"))
 
 
 if __name__ == "__main__":
