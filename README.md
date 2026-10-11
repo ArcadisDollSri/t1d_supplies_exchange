@@ -46,6 +46,26 @@ URL at runtime as described above. Cloud-provider identity-based database
 authentication may avoid a static database password, but its setup depends on
 the hosting and database provider.
 
+## Exchange completion and password recovery
+
+The supply owner can mark an approved exchange complete from **Connections**.
+The offer is then removed from matching, and contact details are hidden again
+for all requests associated with that offer.
+
+Password recovery emails require these deployment environment variables:
+
+- `SMTP_HOST` and `SMTP_FROM` are required.
+- `SMTP_PORT` defaults to `587`; `SMTP_USE_SSL=true` enables implicit TLS
+  (commonly port `465`). Otherwise the app uses STARTTLS.
+- `SMTP_USERNAME` and `SMTP_PASSWORD` must either both be set or both omitted.
+- `PUBLIC_BASE_URL` must be the public HTTPS origin, for example
+  `https://your-app.onrender.com`, so reset links use the correct trusted host.
+
+Reset links expire after one hour, can only be used once, and are stored in the
+database as hashes. The forgot-password response does not reveal whether the
+email address has an account. Password resets require at least 12 characters.
+SMTP failures are logged by the server, and no usable reset link is left behind.
+
 ## Matching and contact privacy
 
 Supply offers and needs accept a city/area or ZIP/postal code; latitude and
@@ -60,5 +80,6 @@ A recipient can request a connection from a match. The supply owner reviews
 incoming requests under **Connections** and can approve or decline. Names,
 email addresses, and ZIP/postal codes are shown to each other only after the
 owner approves. A `connection_requests` table is created automatically for
-existing databases at startup. Previously stored latitude/longitude values, if
-any, are no longer used for matching or displayed.
+existing databases at startup. Availability and completion columns are added
+automatically to existing databases. Previously stored latitude/longitude
+values, if any, are no longer used for matching or displayed.

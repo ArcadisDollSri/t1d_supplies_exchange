@@ -1,7 +1,16 @@
+import hashlib
 import os
+import secrets
+import smtplib
+import ssl
+from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
+from urllib.parse import urljoin
+
 from flask import Flask, render_template, request, redirect, url_for, session, flash
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Column,
     DateTime,
@@ -14,8 +23,10 @@ from sqlalchemy import (
     case,
     create_engine,
     func,
+    inspect,
     insert,
     select,
+    text,
     update,
 )
 from sqlalchemy.exc import IntegrityError
@@ -74,6 +85,7 @@ donors = Table(
     Column("expiry_date", String),
     Column("offer_type", String, nullable=False),
     Column("notes", String),
+    Column("is_available", Boolean, nullable=False, server_default="true"),
 )
 
 recipients = Table(
@@ -97,6 +109,7 @@ connection_requests = Table(
     Column("donor_id", Integer, ForeignKey("donors.id"), nullable=False),
     Column("recipient_id", Integer, ForeignKey("recipients.id"), nullable=False),
     Column("status", String, nullable=False),
+    Column("completed", Boolean, nullable=False, server_default="false"),
     Column("created_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
     CheckConstraint(
         "status IN ('pending', 'approved', 'declined')",
@@ -105,9 +118,35 @@ connection_requests = Table(
     UniqueConstraint("donor_id", "recipient_id", name="connection_requests_pair_unique"),
 )
 
+password_resets = Table(
+    "password_resets",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id"), nullable=False),
+    Column("token_hash", String, unique=True, nullable=False),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+)
+
 
 def init_db():
     metadata.create_all(engine)
+    existing_columns = {
+        table_name: {column["name"] for column in inspect(engine).get_columns(table_name)}
+        for table_name in ("donors", "connection_requests")
+    }
+    migrations = {
+        "donors": ("is_available", "BOOLEAN NOT NULL DEFAULT TRUE"),
+        "connection_requests": ("completed", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    }
+    with engine.begin() as conn:
+        for table_name, (column_name, column_definition) in migrations.items():
+            if column_name not in existing_columns[table_name]:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table_name} ADD COLUMN "
+                        f"{column_name} {column_definition}"
+                    )
+                )
 
 
 init_db()
@@ -176,6 +215,150 @@ def login():
             return redirect(url_for("login"))
 
     return render_template("login.html", user=current_user())
+
+
+def send_password_reset_email(recipient_email, reset_url):
+    smtp_host = os.environ.get("SMTP_HOST")
+    sender_email = os.environ.get("SMTP_FROM")
+    if not smtp_host or not sender_email:
+        raise RuntimeError("SMTP_HOST and SMTP_FROM must be configured.")
+
+    username = os.environ.get("SMTP_USERNAME")
+    password = os.environ.get("SMTP_PASSWORD")
+    if bool(username) != bool(password):
+        raise RuntimeError("Configure both SMTP_USERNAME and SMTP_PASSWORD, or neither.")
+
+    message = EmailMessage()
+    message["Subject"] = "Reset your T1D Supply Exchange password"
+    message["From"] = sender_email
+    message["To"] = recipient_email
+    message.set_content(
+        "We received a request to reset your password. Use the one-time link "
+        f"within one hour:\n\n{reset_url}\n\n"
+        "If you did not request this, you can ignore this email."
+    )
+
+    smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+    timeout = float(os.environ.get("SMTP_TIMEOUT", "15"))
+    use_ssl = os.environ.get("SMTP_USE_SSL", "false").lower() in {"true", "1", "yes"}
+    smtp_class = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
+    smtp_options = {"context": ssl.create_default_context()} if use_ssl else {}
+    with smtp_class(smtp_host, smtp_port, timeout=timeout, **smtp_options) as smtp:
+        if not use_ssl:
+            smtp.starttls(context=ssl.create_default_context())
+        if username:
+            smtp.login(username, password)
+        smtp.send_message(message)
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip()
+        if email:
+            with engine.begin() as conn:
+                user = conn.execute(
+                    select(users.c.id, users.c.email).where(users.c.email == email)
+                ).first()
+                if user:
+                    token = secrets.token_urlsafe(32)
+                    conn.execute(
+                        password_resets.delete().where(
+                            password_resets.c.user_id == user.id
+                        )
+                    )
+                    conn.execute(
+                        insert(password_resets).values(
+                            user_id=user.id,
+                            token_hash=hashlib.sha256(token.encode()).hexdigest(),
+                            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+                        )
+                    )
+            if email and user:
+                public_base_url = os.environ.get("PUBLIC_BASE_URL", "").strip()
+                if not public_base_url.startswith("https://"):
+                    app.logger.error(
+                        "Password reset email not sent: PUBLIC_BASE_URL must be an HTTPS URL."
+                    )
+                    with engine.begin() as conn:
+                        conn.execute(
+                            password_resets.delete().where(
+                                password_resets.c.user_id == user.id
+                            )
+                        )
+                else:
+                    reset_url = urljoin(
+                        public_base_url.rstrip("/") + "/",
+                        url_for("reset_password", token=token).lstrip("/"),
+                    )
+                    try:
+                        send_password_reset_email(user.email, reset_url)
+                    except (OSError, RuntimeError, smtplib.SMTPException, ValueError):
+                        app.logger.exception("Unable to send password reset email.")
+                        with engine.begin() as conn:
+                            conn.execute(
+                                password_resets.delete().where(
+                                    password_resets.c.user_id == user.id
+                                )
+                            )
+
+        flash(
+            "If an account exists for that email, a password reset link will be sent.",
+            "success",
+        )
+        return redirect(url_for("login"))
+
+    return render_template("forgot_password.html", user=current_user())
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    with engine.connect() as conn:
+        reset = conn.execute(
+            select(password_resets.c.id, password_resets.c.user_id).where(
+                password_resets.c.token_hash == token_hash,
+                password_resets.c.expires_at > func.now(),
+            )
+        ).first()
+
+    if not reset:
+        flash("That password reset link is invalid or expired. Request a new one.", "error")
+        return redirect(url_for("forgot_password"))
+
+    if request.method == "POST":
+        password = request.form.get("password") or ""
+        confirm_password = request.form.get("confirm_password") or ""
+        if len(password) < 12:
+            flash("Use a password with at least 12 characters.", "error")
+        elif password != confirm_password:
+            flash("The passwords do not match.", "error")
+        else:
+            with engine.begin() as conn:
+                consumed_reset = conn.execute(
+                    password_resets.delete().where(
+                        password_resets.c.id == reset.id,
+                        password_resets.c.expires_at > func.now(),
+                    )
+                )
+                if consumed_reset.rowcount != 1:
+                    flash("That password reset link is invalid or expired. Request a new one.", "error")
+                    return redirect(url_for("forgot_password"))
+                conn.execute(
+                    update(users)
+                    .where(users.c.id == reset.user_id)
+                    .values(password_hash=generate_password_hash(password))
+                )
+            session.clear()
+            flash("Your password has been reset. Please log in.", "success")
+            return redirect(url_for("login"))
+
+    response = app.make_response(
+        render_template("reset_password.html", user=None, token=token)
+    )
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    return response
 
 
 @app.route("/logout", methods=["POST"])
@@ -300,6 +483,7 @@ def find_matches(supply_type, city, zip_code, user_id):
             ).where(
                 donors.c.supply_type == supply_type,
                 donors.c.user_id != user_id,
+                donors.c.is_available.is_(True),
             )
         ).mappings().all()
 
@@ -356,7 +540,13 @@ def matches():
     )
     with engine.connect() as conn:
         request_rows = conn.execute(
-            select(connection_requests.c.donor_id, connection_requests.c.status).where(
+            select(
+                connection_requests.c.donor_id,
+                case(
+                    (connection_requests.c.completed.is_(True), "completed"),
+                    else_=connection_requests.c.status,
+                ).label("status"),
+            ).where(
                 connection_requests.c.recipient_id == need["id"]
             )
         ).all()
@@ -372,6 +562,8 @@ def matches():
             .where(
                 connection_requests.c.recipient_id == need["id"],
                 connection_requests.c.status == "approved",
+                connection_requests.c.completed.is_(False),
+                donors.c.is_available.is_(True),
             )
         ).mappings().all()
 
@@ -398,17 +590,32 @@ def connections():
         received = conn.execute(
             select(
                 connection_requests.c.id.label("request_id"),
-                connection_requests.c.status,
+                case(
+                    (connection_requests.c.completed.is_(True), "completed"),
+                    else_=connection_requests.c.status,
+                ).label("status"),
                 connection_requests.c.created_at,
                 case(
-                    (connection_requests.c.status == "approved", recipients.c.name)
+                    (
+                        (connection_requests.c.status == "approved")
+                        & connection_requests.c.completed.is_(False),
+                        recipients.c.name,
+                    )
                 ).label("recipient_name"),
                 case(
-                    (connection_requests.c.status == "approved", recipients.c.email)
+                    (
+                        (connection_requests.c.status == "approved")
+                        & connection_requests.c.completed.is_(False),
+                        recipients.c.email,
+                    )
                 ).label("recipient_email"),
                 recipients.c.city.label("recipient_city"),
                 case(
-                    (connection_requests.c.status == "approved", recipients.c.zip_code)
+                    (
+                        (connection_requests.c.status == "approved")
+                        & connection_requests.c.completed.is_(False),
+                        recipients.c.zip_code,
+                    )
                 ).label("recipient_zip"),
                 recipients.c.supply_type,
                 recipients.c.urgency,
@@ -421,18 +628,33 @@ def connections():
         sent = conn.execute(
             select(
                 connection_requests.c.id.label("request_id"),
-                connection_requests.c.status,
+                case(
+                    (connection_requests.c.completed.is_(True), "completed"),
+                    else_=connection_requests.c.status,
+                ).label("status"),
                 connection_requests.c.created_at,
                 donors.c.id.label("donor_id"),
                 case(
-                    (connection_requests.c.status == "approved", donors.c.name)
+                    (
+                        (connection_requests.c.status == "approved")
+                        & connection_requests.c.completed.is_(False),
+                        donors.c.name,
+                    )
                 ).label("donor_name"),
                 case(
-                    (connection_requests.c.status == "approved", donors.c.email)
+                    (
+                        (connection_requests.c.status == "approved")
+                        & connection_requests.c.completed.is_(False),
+                        donors.c.email,
+                    )
                 ).label("donor_email"),
                 donors.c.city.label("donor_city"),
                 case(
-                    (connection_requests.c.status == "approved", donors.c.zip_code)
+                    (
+                        (connection_requests.c.status == "approved")
+                        & connection_requests.c.completed.is_(False),
+                        donors.c.zip_code,
+                    )
                 ).label("donor_zip"),
                 donors.c.supply_type,
                 donors.c.brand,
@@ -479,6 +701,7 @@ def request_connection(recipient_id, donor_id):
                     donors.c.id == donor_id,
                     donors.c.user_id != user["id"],
                     donors.c.supply_type == need["supply_type"],
+                    donors.c.is_available.is_(True),
                 )
             ).first()
             if not donor_offer:
@@ -544,6 +767,7 @@ def update_connection_request(request_id, action):
                 connection_requests.c.id == request_id,
                 connection_requests.c.status == "pending",
                 donors.c.user_id == user["id"],
+                donors.c.is_available.is_(True),
             )
         ).first()
         if not owned_request:
@@ -567,6 +791,63 @@ def update_connection_request(request_id, action):
         else "Connection request declined.",
         "success",
     )
+    return redirect(url_for("connections"))
+
+
+@app.route("/connections/<int:request_id>/complete", methods=["POST"])
+def complete_connection(request_id):
+    user = current_user()
+    if not user:
+        flash("Please log in to complete an exchange.", "error")
+        return redirect(url_for("login"))
+
+    with engine.begin() as conn:
+        completed_request = conn.execute(
+            select(connection_requests.c.id, connection_requests.c.donor_id)
+            .join(donors, donors.c.id == connection_requests.c.donor_id)
+            .where(
+                connection_requests.c.id == request_id,
+                connection_requests.c.status == "approved",
+                connection_requests.c.completed.is_(False),
+                donors.c.user_id == user["id"],
+                donors.c.is_available.is_(True),
+            )
+        ).first()
+        if not completed_request:
+            flash("That approved exchange could not be found or is already complete.", "error")
+            return redirect(url_for("connections"))
+
+        result = conn.execute(
+            update(donors)
+            .where(
+                donors.c.id == completed_request.donor_id,
+                donors.c.user_id == user["id"],
+                donors.c.is_available.is_(True),
+            )
+            .values(is_available=False)
+        )
+        if result.rowcount != 1:
+            flash("That supply is no longer available.", "error")
+            return redirect(url_for("connections"))
+
+        conn.execute(
+            update(connection_requests)
+            .where(
+                connection_requests.c.donor_id == completed_request.donor_id,
+                connection_requests.c.status == "approved",
+            )
+            .values(completed=True)
+        )
+        conn.execute(
+            update(connection_requests)
+            .where(
+                connection_requests.c.donor_id == completed_request.donor_id,
+                connection_requests.c.status == "pending",
+            )
+            .values(status="declined")
+        )
+
+    flash("Exchange completed. The offer was removed and contact details are hidden again.", "success")
     return redirect(url_for("connections"))
 
 
