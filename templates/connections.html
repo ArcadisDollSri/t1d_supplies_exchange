@@ -24,6 +24,8 @@
                             <br>{{ item["recipient_name"] }}
                             <br><a href="mailto:{{ item['recipient_email'] }}">{{ item["recipient_email"] }}</a>
                             <br>ZIP/postal code: {{ item["recipient_zip"] or 'not provided' }}
+                        {% elif item["status"] == 'completed' %}
+                            <br>Exchange completed. Contact details are hidden.
                         {% elif item["status"] == 'pending' %}
                             <br>ZIP and contact details stay hidden until you approve.
                             <br>{{ item["recipient_city"] or 'Area not provided' }}
@@ -38,6 +40,11 @@
                             <form method="post" action="{{ url_for('update_connection_request', request_id=item['request_id'], action='decline') }}">
                                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                                 <button class="secondary" type="submit">Decline</button>
+                            </form>
+                        {% elif item["status"] == 'approved' %}
+                            <form method="post" action="{{ url_for('complete_connection', request_id=item['request_id']) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit">Mark exchange complete</button>
                             </form>
                         {% endif %}
                     </td>
@@ -81,6 +88,8 @@
                             <br>{{ item["donor_name"] }}
                             <br><a href="mailto:{{ item['donor_email'] }}">{{ item["donor_email"] }}</a>
                             <br>ZIP/postal code: {{ item["donor_zip"] or 'not provided' }}
+                        {% elif item["status"] == 'completed' %}
+                            <br>Exchange completed. Contact details are hidden.
                         {% elif item["status"] == 'pending' %}
                             <br>ZIP and donor contact details stay hidden until approval.
                         {% endif %}
