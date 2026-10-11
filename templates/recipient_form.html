@@ -7,6 +7,7 @@
         legality, and suitability of any supplies you receive, and for consulting your healthcare provider.
     </p>
     <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Full Name
             <input type="text" name="name" required>
         </label>

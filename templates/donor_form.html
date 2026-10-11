@@ -7,6 +7,7 @@
         Do not offer anything you believe may be unsafe or illegal to transfer.
     </p>
     <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Full Name
             <input type="text" name="name" required>
         </label>
