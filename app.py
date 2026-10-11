@@ -1,76 +1,88 @@
 import math
 import os
-import sqlite3
 from flask import Flask, render_template, request, redirect, url_for, session, flash
+from sqlalchemy import (
+    Column,
+    Float,
+    ForeignKey,
+    Integer,
+    MetaData,
+    String,
+    Table,
+    create_engine,
+    insert,
+    select,
+)
+from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = "change_this_to_a_secure_random_value"
-DB_NAME = "t1d_exchange.db"
+
+database_url = os.environ.get("DATABASE_URL", "sqlite:///t1d_exchange.db")
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
+elif database_url.startswith("postgresql://"):
+    database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+engine_options = {"pool_pre_ping": True}
+if database_url.startswith("sqlite:"):
+    engine_options["connect_args"] = {"check_same_thread": False}
+engine = create_engine(database_url, **engine_options)
+metadata = MetaData()
+
+
+users = Table(
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("email", String, unique=True, nullable=False),
+    Column("name", String, nullable=False),
+    Column("password_hash", String, nullable=False),
+)
+
+donors = Table(
+    "donors",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id")),
+    Column("name", String, nullable=False),
+    Column("email", String, nullable=False),
+    Column("city", String),
+    Column("zip_code", String),
+    Column("latitude", Float),
+    Column("longitude", Float),
+    Column("supply_type", String, nullable=False, index=True),
+    Column("brand", String),
+    Column("quantity", Integer),
+    Column("condition", String),
+    Column("expiry_date", String),
+    Column("offer_type", String, nullable=False),
+    Column("notes", String),
+)
+
+recipients = Table(
+    "recipients",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("user_id", Integer, ForeignKey("users.id")),
+    Column("name", String, nullable=False),
+    Column("email", String, nullable=False),
+    Column("city", String),
+    Column("zip_code", String),
+    Column("latitude", Float),
+    Column("longitude", Float),
+    Column("supply_type", String, nullable=False),
+    Column("urgency", String),
+    Column("notes", String),
+)
 
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-
-    # Users table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            name TEXT NOT NULL,
-            password_hash TEXT NOT NULL
-        );
-    """)
-
-    # Donors table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS donors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            city TEXT,
-            zip_code TEXT,
-            latitude REAL,
-            longitude REAL,
-            supply_type TEXT NOT NULL,
-            brand TEXT,
-            quantity INTEGER,
-            condition TEXT,
-            expiry_date TEXT,
-            offer_type TEXT NOT NULL,  -- sell / exchange / free
-            notes TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        );
-    """)
-
-    # Recipients table
-    c.execute("""
-        CREATE TABLE IF NOT EXISTS recipients (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            city TEXT,
-            zip_code TEXT,
-            latitude REAL,
-            longitude REAL,
-            supply_type TEXT NOT NULL,
-            urgency TEXT,
-            notes TEXT,
-            FOREIGN KEY(user_id) REFERENCES users(id)
-        );
-    """)
-
-    conn.commit()
-    conn.close()
+    metadata.create_all(engine)
 
 
-def get_db():
-    conn = sqlite3.connect(DB_NAME)
-    conn.row_factory = sqlite3.Row
-    return conn
+init_db()
 
 
 # ---------- Auth helpers ----------
@@ -79,12 +91,10 @@ def current_user():
     user_id = session.get("user_id")
     if not user_id:
         return None
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("SELECT * FROM users WHERE id = ?", (user_id,))
-    user = c.fetchone()
-    conn.close()
-    return user
+    with engine.connect() as conn:
+        return conn.execute(
+            select(users).where(users.c.id == user_id)
+        ).mappings().first()
 
 
 @app.route("/register", methods=["GET", "POST"])
@@ -100,19 +110,16 @@ def register():
 
         password_hash = generate_password_hash(password)
 
-        conn = get_db()
-        c = conn.cursor()
         try:
-            c.execute("""
-                INSERT INTO users (email, name, password_hash)
-                VALUES (?, ?, ?)
-            """, (email, name, password_hash))
-            conn.commit()
-        except sqlite3.IntegrityError:
+            with engine.begin() as conn:
+                conn.execute(
+                    insert(users).values(
+                        email=email, name=name, password_hash=password_hash
+                    )
+                )
+        except IntegrityError:
             flash("Email already registered. Please log in.", "error")
-            conn.close()
             return redirect(url_for("login"))
-        conn.close()
 
         flash("Registration successful. Please log in.", "success")
         return redirect(url_for("login"))
@@ -126,11 +133,10 @@ def login():
         email = request.form.get("email")
         password = request.form.get("password")
 
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("SELECT * FROM users WHERE email = ?", (email,))
-        user = c.fetchone()
-        conn.close()
+        with engine.connect() as conn:
+            user = conn.execute(
+                select(users).where(users.c.email == email)
+            ).mappings().first()
 
         if user and check_password_hash(user["password_hash"], password):
             session["user_id"] = user["id"]
@@ -173,7 +179,7 @@ def donor():
         longitude = request.form.get("longitude")
         supply_type = request.form.get("supply_type")
         brand = request.form.get("brand")
-        quantity = request.form.get("quantity") or 0
+        quantity = int(request.form.get("quantity") or 0)
         condition = request.form.get("condition")
         expiry_date = request.form.get("expiry_date")
         offer_type = request.form.get("offer_type")
@@ -182,17 +188,25 @@ def donor():
         latitude = float(latitude) if latitude else None
         longitude = float(longitude) if longitude else None
 
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO donors
-            (user_id, name, email, city, zip_code, latitude, longitude,
-             supply_type, brand, quantity, condition, expiry_date, offer_type, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user["id"], name, email, city, zip_code, latitude, longitude,
-              supply_type, brand, quantity, condition, expiry_date, offer_type, notes))
-        conn.commit()
-        conn.close()
+        with engine.begin() as conn:
+            conn.execute(
+                insert(donors).values(
+                    user_id=user["id"],
+                    name=name,
+                    email=email,
+                    city=city,
+                    zip_code=zip_code,
+                    latitude=latitude,
+                    longitude=longitude,
+                    supply_type=supply_type,
+                    brand=brand,
+                    quantity=quantity,
+                    condition=condition,
+                    expiry_date=expiry_date,
+                    offer_type=offer_type,
+                    notes=notes,
+                )
+            )
 
         flash("Offer submitted.", "success")
         return redirect(url_for("index"))
@@ -221,17 +235,21 @@ def recipient():
         latitude = float(latitude) if latitude else None
         longitude = float(longitude) if longitude else None
 
-        conn = get_db()
-        c = conn.cursor()
-        c.execute("""
-            INSERT INTO recipients
-            (user_id, name, email, city, zip_code, latitude, longitude,
-             supply_type, urgency, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (user["id"], name, email, city, zip_code, latitude, longitude,
-              supply_type, urgency, notes))
-        conn.commit()
-        conn.close()
+        with engine.begin() as conn:
+            conn.execute(
+                insert(recipients).values(
+                    user_id=user["id"],
+                    name=name,
+                    email=email,
+                    city=city,
+                    zip_code=zip_code,
+                    latitude=latitude,
+                    longitude=longitude,
+                    supply_type=supply_type,
+                    urgency=urgency,
+                    notes=notes,
+                )
+            )
 
         return redirect(url_for("matches",
                                 supply_type=supply_type,
@@ -259,15 +277,10 @@ def haversine(lat1, lon1, lat2, lon2):
 
 
 def find_matches(supply_type, city, zip_code, latitude, longitude):
-    conn = get_db()
-    c = conn.cursor()
-    c.execute("""
-        SELECT *
-        FROM donors
-        WHERE supply_type = ?
-    """, (supply_type,))
-    donors = c.fetchall()
-    conn.close()
+    with engine.connect() as conn:
+        matching_donors = conn.execute(
+            select(donors).where(donors.c.supply_type == supply_type)
+        ).mappings().all()
 
     def score(d):
         s = 0
@@ -283,7 +296,7 @@ def find_matches(supply_type, city, zip_code, latitude, longitude):
             s += max(0, 10 - dist_km)  # simple heuristic: within ~10km gets positive boost
         return s
 
-    donors_sorted = sorted(donors, key=score, reverse=True)
+    donors_sorted = sorted(matching_donors, key=score, reverse=True)
     return donors_sorted
 
 
