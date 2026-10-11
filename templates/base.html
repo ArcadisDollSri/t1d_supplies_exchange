@@ -91,6 +91,9 @@
             <a href="{{ url_for('index') }}">Home</a>
             <a href="{{ url_for('donor') }}">Offer Supplies</a>
             <a href="{{ url_for('recipient') }}">Register Need</a>
+            {% if user %}
+                <a href="{{ url_for('connections') }}">Connections</a>
+            {% endif %}
         </div>
         </div>
     </div>

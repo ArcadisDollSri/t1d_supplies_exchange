@@ -1,10 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="card">
-    <h2>Matches for "{{ supply_type }}"</h2>
+    <h2>Matches for "{{ need['supply_type'] }}"</h2>
     <p>
-        Location preference: {{ city or 'N/A' }} {{ zip_code or '' }}.
-        If latitude/longitude were provided, results are boosted by physical proximity.
+        Your location: {{ need["city"] or '' }} {{ need["zip_code"] or '' }}.
+        Matches are sorted by same ZIP/postal code first, then same city/area. This is approximate, not street-level distance.
+        Donor contact details are shared only after the donor approves your request.
     </p>
 
     {% if donors %}
@@ -12,23 +13,23 @@
         <table>
             <thead>
             <tr>
-                <th>Donor</th>
-                <th>Contact</th>
                 <th>Location</th>
                 <th>Supply Details</th>
                 <th>Offer Type</th>
-                <th>Notes</th>
+                <th>Connection</th>
             </tr>
             </thead>
             <tbody>
             {% for d in donors %}
                 <tr>
-                    <td>{{ d["name"] }}</td>
-                    <td>{{ d["email"] }}</td>
                     <td>
-                        {{ d["city"] or '' }} {{ d["zip_code"] or '' }}<br>
-                        {% if d["latitude"] and d["longitude"] %}
-                            Lat: {{ d["latitude"] }}, Lon: {{ d["longitude"] }}
+                        {{ d["city"] or 'Area not provided' }}<br>
+                        {% if d["same_zip"] %}
+                            Same ZIP/postal code
+                        {% elif d["same_city"] %}
+                            Same city/area
+                        {% else %}
+                            Other area
                         {% endif %}
                     </td>
                     <td>
@@ -39,7 +40,28 @@
                         Expiry: {{ d["expiry_date"] or 'N/A' }}
                     </td>
                     <td>{{ d["offer_type"] }}</td>
-                    <td>{{ d["notes"] or '' }}</td>
+                    <td>
+                        {% set status = request_statuses.get(d["id"]) %}
+                        {% if status == 'approved' %}
+                            <strong>Approved</strong><br>
+                            {{ donor_contacts[d["id"]]["name"] }}<br>
+                            <a href="mailto:{{ donor_contacts[d['id']]['email'] }}">{{ donor_contacts[d["id"]]["email"] }}</a><br>
+                            {{ donor_contacts[d["id"]]["city"] or '' }} {{ donor_contacts[d["id"]]["zip_code"] or '' }}
+                        {% elif status == 'pending' %}
+                            Request pending donor approval.
+                        {% elif status == 'declined' %}
+                            Request declined.
+                            <form method="post" action="{{ url_for('request_connection', recipient_id=need['id'], donor_id=d['id']) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit">Request again</button>
+                            </form>
+                        {% else %}
+                            <form method="post" action="{{ url_for('request_connection', recipient_id=need['id'], donor_id=d['id']) }}">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit">Request connection</button>
+                            </form>
+                        {% endif %}
+                    </td>
                 </tr>
             {% endfor %}
             </tbody>

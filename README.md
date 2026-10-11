@@ -45,3 +45,20 @@ username and password; they can be kept out of the codebase by supplying the
 URL at runtime as described above. Cloud-provider identity-based database
 authentication may avoid a static database password, but its setup depends on
 the hosting and database provider.
+
+## Matching and contact privacy
+
+Supply offers and needs accept a city/area or ZIP/postal code; latitude and
+longitude are not required. Matches are approximate: an identical ZIP/postal
+code ranks first, followed by an identical city/area. This does not calculate
+street-level or true geographic distance, and no location is sent to an
+external geocoding service. Search results show approximate city/area and
+whether the ZIP or city matched, not the other party's name, email, notes, or
+ZIP.
+
+A recipient can request a connection from a match. The supply owner reviews
+incoming requests under **Connections** and can approve or decline. Names,
+email addresses, and ZIP/postal codes are shown to each other only after the
+owner approves. A `connection_requests` table is created automatically for
+existing databases at startup. Previously stored latitude/longitude values, if
+any, are no longer used for matching or displayed.
