@@ -22,7 +22,7 @@
             <tbody>
             {% for d in donors %}
                 <tr>
-                    <td>
+                    <td data-label="Location">
                         {{ d["city"] or 'Area not provided' }}<br>
                         {% if d["same_zip"] %}
                             Same ZIP/postal code
@@ -32,15 +32,15 @@
                             Other area
                         {% endif %}
                     </td>
-                    <td>
+                    <td data-label="Supply details">
                         Type: {{ d["supply_type"] }}<br>
                         Brand: {{ d["brand"] or 'N/A' }}<br>
                         Qty: {{ d["quantity"] }}<br>
                         Condition: {{ d["condition"] or 'N/A' }}<br>
                         Expiry: {{ d["expiry_date"] or 'N/A' }}
                     </td>
-                    <td>{{ d["offer_type"] }}</td>
-                    <td>
+                    <td data-label="Offer type">{{ d["offer_type"] }}</td>
+                    <td data-label="Connection">
                         {% set status = request_statuses.get(d["id"]) %}
                         {% if status == 'approved' %}
                             <strong>Approved</strong><br>
