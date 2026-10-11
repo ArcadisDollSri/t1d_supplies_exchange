@@ -1,12 +1,25 @@
 # T1D Supplies Exchange
 
-## Database configuration
+## Configuration and security
+
+The app requires a `SECRET_KEY` environment variable for signing sessions and
+CSRF tokens. Generate one with Python and set it in your local environment or
+deployment secret manager; never commit it:
+
+```powershell
+$env:SECRET_KEY = python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Set `SESSION_COOKIE_SECURE=false` only for local HTTP development. It defaults
+to `true` so browsers send session cookies only over HTTPS. Cookies are also
+HTTP-only and use `SameSite=Lax`; state-changing forms require CSRF tokens.
 
 The app uses SQLite locally by default and can use any PostgreSQL-compatible
 managed database for demos or production. Set `DATABASE_URL` to the provider's
-connection URL when deploying; the app creates its tables at startup. Keep the
-URL private and configure it as a deployment environment variable, not in source
-control.
+connection URL when deploying; the app creates its tables at startup. Store the
+URL in the deployment platform's secret manager or protected environment
+variables, not in source control. SQLAlchemy is configured not to include query
+parameters in its SQL logs.
 
 ```powershell
 $env:DATABASE_URL = "postgresql://USER:PASSWORD@HOST:5432/DATABASE?sslmode=require"
@@ -26,3 +39,9 @@ its data; export/import existing records before switching if they need to be
 kept.
 
 Install dependencies with `pip install -r requirements.txt`.
+
+Database credentials cannot be removed when the database authenticates with a
+username and password; they can be kept out of the codebase by supplying the
+URL at runtime as described above. Cloud-provider identity-based database
+authentication may avoid a static database password, but its setup depends on
+the hosting and database provider.

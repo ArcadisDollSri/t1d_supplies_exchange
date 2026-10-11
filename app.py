@@ -1,6 +1,7 @@
 import math
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, flash
+from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import (
     Column,
     Float,
@@ -17,7 +18,19 @@ from sqlalchemy.exc import IntegrityError
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = "change_this_to_a_secure_random_value"
+secret_key = os.environ.get("SECRET_KEY")
+if not secret_key:
+    raise RuntimeError("Set SECRET_KEY to a cryptographically random value.")
+secure_cookie_setting = os.environ.get("SESSION_COOKIE_SECURE", "true").lower()
+if secure_cookie_setting not in {"true", "false", "1", "0", "yes", "no"}:
+    raise RuntimeError("SESSION_COOKIE_SECURE must be true or false.")
+app.config.update(
+    SECRET_KEY=secret_key,
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=secure_cookie_setting in {"true", "1", "yes"},
+    SESSION_COOKIE_SAMESITE="Lax",
+)
+CSRFProtect(app)
 
 database_url = os.environ.get("DATABASE_URL", "sqlite:///t1d_exchange.db")
 if database_url.startswith("postgres://"):
@@ -28,7 +41,7 @@ elif database_url.startswith("postgresql://"):
 engine_options = {"pool_pre_ping": True}
 if database_url.startswith("sqlite:"):
     engine_options["connect_args"] = {"check_same_thread": False}
-engine = create_engine(database_url, **engine_options)
+engine = create_engine(database_url, hide_parameters=True, **engine_options)
 metadata = MetaData()
 
 
@@ -139,6 +152,7 @@ def login():
             ).mappings().first()
 
         if user and check_password_hash(user["password_hash"], password):
+            session.clear()
             session["user_id"] = user["id"]
             flash("Logged in successfully.", "success")
             return redirect(url_for("index"))
@@ -149,9 +163,9 @@ def login():
     return render_template("login.html", user=current_user())
 
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
-    session.pop("user_id", None)
+    session.clear()
     flash("Logged out.", "success")
     return redirect(url_for("index"))
 

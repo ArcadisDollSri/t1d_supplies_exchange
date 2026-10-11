@@ -97,7 +97,10 @@
     <div class="account">
         {% if user %}
             <span>Logged in as {{ user["name"] }}</span>
-            <a href="{{ url_for('logout') }}">Logout</a>
+            <form method="post" action="{{ url_for('logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit">Logout</button>
+            </form>
         {% else %}
             <a href="{{ url_for('login') }}">Login</a>
             <a href="{{ url_for('register') }}">Register</a>
