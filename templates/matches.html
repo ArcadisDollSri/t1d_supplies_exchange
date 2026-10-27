@@ -7,6 +7,13 @@
         Matches are sorted by same ZIP/postal code first, then same city/area. This is approximate, not street-level distance.
         Donor contact details are shared only after the donor approves your request.
     </p>
+    <div class="actions">
+        <a
+            class="button secondary"
+            href="{{ url_for('matches', recipient_id=need['id']) }}"
+            aria-label="Check again for newly available supplies"
+        >Check again</a>
+    </div>
 
     {% if donors %}
         <div class="table-wrap">
