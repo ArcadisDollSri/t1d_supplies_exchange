@@ -23,4 +23,50 @@
         <a class="button secondary" href="{{ url_for('donor') }}">Offer supplies</a>
     </div>
 </section>
+
+<section class="card" aria-labelledby="demo-heading">
+    <h2 id="demo-heading">See how it works</h2>
+    <p class="lead">
+        Take a quick, narrated tour of offering supplies, finding approximate matches,
+        and requesting a connection.
+    </p>
+    <figure>
+        <video
+            class="demo-video"
+            controls
+            playsinline
+            preload="metadata"
+            poster="{{ url_for('static', filename='demo/t1d-supply-exchange-demo-poster.jpg') }}"
+            aria-label="Narrated demo of offering supplies, finding matches, and requesting a connection"
+        >
+            <source src="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.mp4') }}" type="video/mp4">
+            <track
+                kind="captions"
+                src="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.en.vtt') }}"
+                srclang="en"
+                label="English"
+                default
+            >
+            <p>
+                Video playback is not supported in this browser.
+                <a href="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.mp4') }}">Download the demo video</a>
+                or read the transcript below.
+            </p>
+        </video>
+        <figcaption class="disclaimer">
+            Fictional sample information is used. Contact details remain hidden until a supply owner approves a request.
+        </figcaption>
+    </figure>
+    <details class="demo-transcript">
+        <summary>Read the demo transcript</summary>
+        <ol>
+            <li>Share extra T1D supplies, or find what you need.</li>
+            <li>List each item's condition, area, and offer terms.</li>
+            <li>Register a need by supply type and city or ZIP.</li>
+            <li>Review approximate matches, then request a connection.</li>
+            <li>The owner decides; contact details stay hidden until approval.</li>
+            <li>Create an account. Check safety with your healthcare professional.</li>
+        </ol>
+    </details>
+</section>
 {% endblock %}
