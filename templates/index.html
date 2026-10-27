@@ -39,17 +39,17 @@
             poster="{{ url_for('static', filename='demo/t1d-supply-exchange-demo-poster.jpg') }}"
             aria-label="Narrated demo of offering supplies, finding matches, and requesting a connection"
         >
-            <source src="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.mp4') }}" type="video/mp4">
+            <source src="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.mp4', v='4') }}" type="video/mp4">
             <track
                 kind="captions"
-                src="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.en.vtt') }}"
+                src="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.en.vtt', v='4') }}"
                 srclang="en"
                 label="English"
                 default
             >
             <p>
                 Video playback is not supported in this browser.
-                <a href="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.mp4') }}">Download the demo video</a>
+                <a href="{{ url_for('static', filename='demo/t1d-supply-exchange-demo.mp4', v='4') }}">Download the demo video</a>
                 or read the transcript below.
             </p>
         </video>
@@ -63,12 +63,14 @@
             <li>Millions of people manage type 1 diabetes, day after day. They depend on insulin and other essential supplies. Having them when they are needed matters.</li>
             <li>Even with careful planning, sometimes a supply runs low. People reach out to family, friends, and local T1D groups. That support matters, but it does not reach everyone.</li>
             <li>This idea came from a real personal experience. That is why VoiceOfT1D created this web exchange: to help more people find each other, anywhere in the world. A mobile app is a future goal.</li>
-            <li>Meet Maya. She needs a CGM and hopes to find one nearby.</li>
-            <li>Meanwhile, Jordan has an unopened CGM to offer.</li>
-            <li>Maya shares what she needs and adds a city or ZIP. No street address needed.</li>
-            <li>She spots a possible match and asks Jordan to connect.</li>
-            <li>Jordan gets to decide. Maya's contact details stay private until he approves.</li>
-            <li>He approves. Now they can share contact details and talk through what works for them.</li>
+            <li>First, sign in if you already have an account, or select Register to create one.</li>
+            <li>To share an item, choose Offer Supplies. If prompted, sign in to continue.</li>
+            <li>Jordan adds the item type, condition, and location, then chooses how to share it.</li>
+            <li>Need something? Choose Register Need to let the community know.</li>
+            <li>Maya registers the supply she needs and adds her city or ZIP code. No exact address is needed.</li>
+            <li>She reviews approximate matches. Check again reruns the search for newly available offers.</li>
+            <li>Maya asks to connect. Jordan can approve or decline, and her contact details stay private while he decides.</li>
+            <li>Jordan approves. Now they can share contact details and talk through what works for them.</li>
             <li>And that's the heart of this exchange. Insulin, test strips, CGM or pump supplies, and more. When something runs low, people can find each other and offer a hand.</li>
         </ol>
     </details>
